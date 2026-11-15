@@ -1,0 +1,60 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: taskdb
+      MYSQL_USER: task
+      MYSQL_PASSWORD: task
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-utask", "-ptask"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    image: migrate/migrate:v4.18.1
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command:
+      [
+        "-path", "/migrations",
+        "-database", "mysql://task:task@tcp(mysql:3306)/taskdb?multiStatements=true",
+        "up",
+      ]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./backend
+    environment:
+      PORT: "8080"
+      DB_DSN: "task:task@tcp(mysql:3306)/taskdb?parseTime=true&clientFoundRows=true&loc=UTC"
+      REDIS_ADDR: "redis:6379"
+      CACHE_TTL: "60s"
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
